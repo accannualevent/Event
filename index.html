@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Event Check-in</title>
+<style>
+  :root {
+    --bg: #f3f5f7; --card: #ffffff; --ink: #14202b; --muted: #5d6b78; --line: #dde3e8;
+    --in: #1f8a4c; --out: #c2571a; --home: #2b5fd9; --err: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #10161b; --card: #1a232b; --ink: #eef2f5; --muted: #9aa8b4; --line: #2b3742;
+            --in: #3fb878; --out: #f08a4b; --home: #6c95f5; --err: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: max(20px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 440px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  label { display: block; font-weight: 600; margin-bottom: 8px; }
+  input {
+    width: 100%; font-size: 18px; padding: 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); text-transform: uppercase;
+  }
+  button {
+    width: 100%; font-size: 20px; font-weight: 700; color: #fff; border: 0; border-radius: 14px;
+    padding: 22px 16px; margin-top: 12px; cursor: pointer; min-height: 72px;
+  }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--home); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .b-in { background: var(--in); } .b-out { background: var(--out); } .b-home { background: var(--home); }
+  .b-save { background: var(--ink); color: var(--bg); margin-top: 14px; min-height: 56px; font-size: 18px; }
+  .who { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .link { background: none; color: var(--muted); width: auto; min-height: 0; padding: 4px; margin: 0;
+          font-size: 14px; font-weight: 500; text-decoration: underline; }
+  #msg { min-height: 24px; margin: 14px 0 0; font-weight: 600; }
+  #msg.err { color: var(--err); } #msg.ok { color: var(--in); }
+  ul { list-style: none; padding: 0; margin: 14px 0 0; color: var(--muted); font-size: 14px; }
+  li { padding: 6px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Event check-in</h1>
+  <p class="sub" id="sub">Enter your Employee ID once. This phone will remember it.</p>
+
+  <!-- Step 1: shown only the first time -->
+  <section class="card" id="setup">
+    <label for="empId">Employee ID</label>
+    <input id="empId" autocomplete="off" autocapitalize="characters" inputmode="text" placeholder="e.g. E12345">
+    <button class="b-save" id="saveBtn">Save and continue</button>
+  </section>
+
+  <!-- Step 2: the three buttons -->
+  <section id="actions" class="hidden">
+    <div class="who">
+      <strong id="whoLabel"></strong>
+      <button class="link" id="changeBtn">Not you?</button>
+    </div>
+    <button class="b-in"   data-action="CHECK_IN">✅ Check In</button>
+    <button class="b-out"  data-action="CHECK_OUT">🚪 Check Out</button>
+    <button class="b-home" data-action="REACHED_HOME">🏠 Reached Home</button>
+    <p id="msg" role="status" aria-live="polite"></p>
+    <ul id="history"></ul>
+  </section>
+</main>
+
+<script>
+// ====== CONFIG: paste your Apps Script Web App URL (ends with /exec) ======
+const API_URL = 'https://script.google.com/macros/s/PASTE_YOUR_DEPLOYMENT_ID/exec';
+// =========================================================================
+
+const LABELS = { CHECK_IN: 'Checked in', CHECK_OUT: 'Checked out', REACHED_HOME: 'Reached home' };
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+
+// The QR code URL looks like  https://you.github.io/event/?k=EVENTKEY
+const urlKey = new URLSearchParams(location.search).get('k');
+if (urlKey) { store.set('eventKey', urlKey); history.replaceState(null, '', location.pathname); }
+const eventKey = () => store.get('eventKey', '');
+
+function show() {
+  const id = store.get('empId', '');
+  $('setup').classList.toggle('hidden', !!id);
+  $('actions').classList.toggle('hidden', !id);
+  $('sub').textContent = id ? 'Tap the button that matches where you are.' : 'Enter your Employee ID once. This phone will remember it.';
+  if (id) { $('whoLabel').textContent = 'Employee ' + id; renderHistory(); }
+}
+
+function renderHistory() {
+  const h = store.get('history', []);
+  $('history').innerHTML = h.slice(-5).reverse()
+    .map(x => `<li><span>${LABELS[x.action]}</span><span>${new Date(x.t).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></li>`)
+    .join('');
+}
+
+function say(text, cls) { const m = $('msg'); m.textContent = text; m.className = cls || ''; }
+
+$('saveBtn').onclick = () => {
+  const id = $('empId').value.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{3,20}$/.test(id)) return alert('Please enter a valid Employee ID (letters/numbers).');
+  store.set('empId', id); show();
+};
+$('empId').addEventListener('keydown', e => { if (e.key === 'Enter') $('saveBtn').click(); });
+$('changeBtn').onclick = () => { if (confirm('Switch to a different Employee ID on this phone?')) { store.del('empId'); store.del('history'); $('empId').value = ''; say(''); show(); } };
+
+async function send(payload) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight with Apps Script
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+
+// Offline-safe queue: failed sends are kept on the device and retried automatically.
+async function flushQueue() {
+  let q = store.get('queue', []);
+  while (q.length) {
+    try {
+      const r = await send(q[0]);
+      if (!r.ok && !r.duplicate) { q.shift(); store.set('queue', q); continue; } // permanent error: drop
+      q.shift(); store.set('queue', q);
+    } catch (e) { return false; }
+  }
+  return true;
+}
+
+document.querySelectorAll('[data-action]').forEach(btn => {
+  btn.onclick = async () => {
+    const action = btn.dataset.action;
+    const payload = {
+      key: eventKey(), employeeId: store.get('empId', ''), action,
+      requestId: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
+      clientTime: new Date().toISOString(), ua: navigator.userAgent
+    };
+    const all = document.querySelectorAll('[data-action]');
+    all.forEach(b => b.disabled = true); say('Saving…');
+    try {
+      const r = await send(payload);
+      if (r.ok) {
+        const h = store.get('history', []); h.push({ action, t: Date.now() }); store.set('history', h);
+        renderHistory(); say('✔ ' + LABELS[action] + (r.name ? ', ' + r.name : '') + '. Thank you!', 'ok');
+      } else { say(r.error || 'Something went wrong.', 'err'); }
+    } catch (e) {
+      // network problem: queue it so it is not lost
+      const q = store.get('queue', []); q.push(payload); store.set('queue', q);
+      const h = store.get('history', []); h.push({ action, t: Date.now() }); store.set('history', h); renderHistory();
+      say('No signal. Saved on your phone and will send automatically.', 'err');
+    }
+    setTimeout(() => all.forEach(b => b.disabled = false), 2500); // short lock stops accidental double taps
+  };
+});
+
+window.addEventListener('online', flushQueue);
+setInterval(flushQueue, 30000);
+show(); flushQueue();
+</script>
+</body>
+</html>
