@@ -55,7 +55,7 @@
   <!-- Step 1: shown only the first time -->
   <section class="card" id="setup">
     <label for="empId">Employee ID</label>
-    <input id="empId" autocomplete="off" autocapitalize="characters" inputmode="text" placeholder="e.g. I12345">
+    <input id="empId" autocomplete="off" autocapitalize="characters" inputmode="text" placeholder="e.g. E12345">
     <button class="b-save" id="saveBtn">Continue</button>
     <p id="setupMsg" role="status" aria-live="polite" style="margin:12px 0 0;font-weight:600"></p>
   </section>
@@ -89,8 +89,8 @@ const store = {
 
 // The QR code URL looks like  https://you.github.io/event/?k=EVENTKEY
 const urlKey = new URLSearchParams(location.search).get('k');
-if (urlKey) { store.set('eventKey', urlKey); history.replaceState(null, '', location.pathname); }
-const eventKey = () => store.get('eventKey', '');
+if (urlKey) { store.set('eventKey', urlKey); } // keep ?k= in the address so a refresh always works
+const eventKey = () => urlKey || store.get('eventKey', '');
 
 function show() {
   const id = store.get('empId', '');
