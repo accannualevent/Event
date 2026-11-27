@@ -56,9 +56,8 @@
   <section class="card" id="setup">
     <label for="empId">Employee ID</label>
     <input id="empId" autocomplete="off" autocapitalize="characters" inputmode="text" placeholder="e.g. E12345">
-    <label for="empName" style="margin-top:14px">Your name</label>
-    <input id="empName" autocomplete="name" style="text-transform:none" placeholder="e.g. Priya Sharma">
-    <button class="b-save" id="saveBtn">Save and continue</button>
+    <button class="b-save" id="saveBtn">Continue</button>
+    <p id="setupMsg" role="status" aria-live="polite" style="margin:12px 0 0;font-weight:600"></p>
   </section>
 
   <!-- Step 2: the three buttons -->
@@ -77,7 +76,7 @@
 
 <script>
 // ====== CONFIG: paste your Apps Script Web App URL (ends with /exec) ======
-const API_URL = 'https://script.google.com/macros/s/AKfycbw3w2lzQTJ_Lg7JYmi_Q8paCZr6j6lxSX8N2Cn3FWwmJ0PVTAItvKoGLMnDwF-JN6vplw/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwACoC0chmulrdP42cydB5v-p58IBUtORT75k8nbRsGFQWwzAaWTEmSboLLeeOO_RVl2A/exec';
 // =========================================================================
 
 const LABELS = { CHECK_IN: 'Checked in', CHECK_OUT: 'Checked out', REACHED_HOME: 'Reached home' };
@@ -121,18 +120,26 @@ function renderHistory() {
 
 function say(text, cls) { const m = $('msg'); m.textContent = text; m.className = cls || ''; }
 
-$('saveBtn').onclick = () => {
+$('saveBtn').onclick = async () => {
   const id = $('empId').value.trim().toUpperCase();
-  const nm = $('empName').value.trim();
-  if (!/^[A-Z0-9_-]{3,20}$/.test(id)) return alert('Please enter a valid Employee ID (letters/numbers).');
-  if (nm.length < 2) return alert('Please enter your name.');
-  store.set('empId', id); store.set('empName', nm); show();
+  const sm = $('setupMsg');
+  if (!/^[A-Z0-9_-]{3,20}$/.test(id)) { sm.className = 'err'; sm.textContent = 'Please enter a valid Employee ID (letters and numbers).'; return; }
+  $('saveBtn').disabled = true; sm.className = ''; sm.textContent = 'Checking…';
+  try {
+    const url = API_URL + '?action=lookup&id=' + encodeURIComponent(id) + '&key=' + encodeURIComponent(eventKey());
+    const r = await (await fetch(url)).json();
+    if (r.ok) { store.set('empId', id); store.set('empName', r.name); sm.textContent = ''; show(); }
+    else { sm.className = 'err'; sm.textContent = r.error || 'Employee ID not found.'; }
+  } catch (e) {
+    sm.className = 'err'; sm.textContent = 'Could not reach the server. Check your connection and try again.';
+  }
+  $('saveBtn').disabled = false;
 };
-$('empName').addEventListener('keydown', e => { if (e.key === 'Enter') $('saveBtn').click(); });
+$('empId').addEventListener('keydown', e => { if (e.key === 'Enter') $('saveBtn').click(); });
 $('changeBtn').onclick = () => {
   if (confirm('Switch to a different Employee ID on this phone?')) {
     ['empId', 'empName', 'history', 'done'].forEach(store.del);
-    $('empId').value = ''; $('empName').value = ''; say(''); show();
+    $('empId').value = ''; $('setupMsg').textContent = ''; say(''); show();
   }
 };
 
